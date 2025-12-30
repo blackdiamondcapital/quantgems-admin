@@ -160,6 +160,38 @@ app.post('/admin/login', async (req, res) => {
   }
 });
 
+app.post('/admin/exchange-key', async (req, res) => {
+  const provided = String(req.body?.accessKey || req.headers['x-admin-access-key'] || '').trim();
+  const expected = String(process.env.ADMIN_ACCESS_KEY || '').trim();
+
+  if (!expected) {
+    return res.status(500).json({ success: false, message: '尚未設定 ADMIN_ACCESS_KEY' });
+  }
+
+  if (!provided || provided !== expected) {
+    return res.status(401).json({ success: false, message: 'Access key 無效' });
+  }
+
+  if (ADMIN_EMAILS.length === 0) {
+    return res.status(500).json({ success: false, message: '尚未設定 ADMIN_EMAILS' });
+  }
+
+  const email = ADMIN_EMAILS[0];
+  const token = jwt.sign(
+    { id: null, email, scope: 'admin', via: 'access_key' },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+
+  return res.json({
+    success: true,
+    data: {
+      token,
+      admin: { id: null, email },
+    },
+  });
+});
+
 app.get('/admin/me', requireAdmin, async (req, res) => {
   return res.json({ success: true, data: { admin: req.admin } });
 });
