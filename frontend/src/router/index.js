@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getToken, setToken } from '../lib/auth.js'
+import { exchangeKey } from '../lib/api.js'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -56,6 +57,20 @@ router.beforeEach((to) => {
   if (!token && !isPublic && import.meta.env.DEV) {
     setToken('dev-bypass-token')
     token = 'dev-bypass-token'
+  }
+
+  // Production convenience: if provided a shared access key, exchange it for a short-lived JWT.
+  const accessKey = import.meta.env.VITE_ADMIN_ACCESS_KEY
+  if (!token && !isPublic && !import.meta.env.DEV && accessKey) {
+    return exchangeKey(accessKey)
+      .then((data) => {
+        if (data && data.token) {
+          setToken(data.token)
+          return true
+        }
+        return { path: '/login', query: { redirect: to.fullPath } }
+      })
+      .catch(() => ({ path: '/login', query: { redirect: to.fullPath } }))
   }
 
   if (!isPublic && !token) {
