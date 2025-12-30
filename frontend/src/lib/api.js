@@ -30,6 +30,15 @@ export async function login(email, password) {
   return json && json.data
 }
 
+export async function exchangeKey(accessKey) {
+  const json = await request('/admin/exchange-key', {
+    method: 'POST',
+    body: JSON.stringify({ accessKey }),
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return json && json.data
+}
+
 export async function me() {
   const json = await request('/admin/me')
   return json && json.data && json.data.admin
