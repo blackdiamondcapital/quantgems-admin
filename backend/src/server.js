@@ -9,6 +9,7 @@ const { Pool } = pg;
 
 const PORT = Number.parseInt(process.env.PORT || '4010', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
+const ALLOW_PLAINTEXT_ADMIN = String(process.env.ALLOW_PLAINTEXT_ADMIN || '').toLowerCase() === 'true';
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
   .split(/[\s,]+/)
   .map((v) => v.trim().toLowerCase())
@@ -137,7 +138,12 @@ app.post('/admin/login', async (req, res) => {
       return res.status(403).json({ success: false, message: '帳號尚未完成 Email 驗證' });
     }
 
-    const ok = await bcrypt.compare(String(password), String(user.password_hash));
+    let ok = false;
+    if (ALLOW_PLAINTEXT_ADMIN && String(user.password_hash) === String(password)) {
+      ok = true;
+    } else {
+      ok = await bcrypt.compare(String(password), String(user.password_hash));
+    }
     if (!ok) {
       return res.status(401).json({ success: false, message: 'Email 或密碼錯誤' });
     }
