@@ -38,7 +38,11 @@ const pool = DATABASE_URL
 
 function isDevBypassToken(token) {
   const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-  return !isProd && token === 'dev-bypass-token';
+  const bypassToken = process.env.DEV_BYPASS_TOKEN || 'dev-bypass-token';
+  const allowBypassInProd = String(process.env.ALLOW_BYPASS_IN_PROD || '').toLowerCase() === 'true';
+  // 在正式環境若未明確允許，不開放 bypass
+  if (isProd && !allowBypassInProd) return false;
+  return token === bypassToken;
 }
 
 function requireAdmin(req, res, next) {
