@@ -25,6 +25,11 @@ const router = createRouter({
           component: () => import('../views/DashboardView.vue'),
         },
         {
+          path: 'settings/presence',
+          name: 'settings-presence',
+          component: () => import('../views/PresenceSettingsView.vue'),
+        },
+        {
           path: 'users',
           name: 'users',
           component: () => import('../views/UsersView.vue'),
