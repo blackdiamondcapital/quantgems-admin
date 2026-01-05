@@ -14,6 +14,7 @@ const admin = ref(null)
 const title = computed(() => {
   const map = {
     '/dashboard': '總覽儀表板',
+    '/settings/presence': '排隊/阻擋設定',
     '/users': '用戶管理',
     '/subscriptions': '訂閱管理',
     '/payments': '付款紀錄',
@@ -57,6 +58,7 @@ onMounted(() => {
 
       <nav class="nav">
         <RouterLink to="/dashboard" class="nav-item" active-class="active">總覽儀表板</RouterLink>
+        <RouterLink to="/settings/presence" class="nav-item" active-class="active">排隊/阻擋設定</RouterLink>
         <RouterLink to="/users" class="nav-item" active-class="active">用戶管理</RouterLink>
         <RouterLink to="/subscriptions" class="nav-item" active-class="active">訂閱管理</RouterLink>
         <RouterLink to="/payments" class="nav-item" active-class="active">付款紀錄</RouterLink>
