@@ -90,6 +90,132 @@ function parsePagination(req, { defaultLimit = 50, maxLimit = 200 } = {}) {
   return { limit, offset };
 }
 
+let ensuredSystemSettings = false;
+let ensureSystemSettingsPromise = null;
+
+async function ensureSystemSettingsTable() {
+  if (ensuredSystemSettings) return;
+  if (ensureSystemSettingsPromise) return ensureSystemSettingsPromise;
+  ensureSystemSettingsPromise = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        key TEXT PRIMARY KEY,
+        value JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    ensuredSystemSettings = true;
+  })();
+  return ensureSystemSettingsPromise;
+}
+
+function normalizeBool(value) {
+  if (typeof value === 'boolean') return value;
+  const s = String(value ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (['1', 'true', 'yes', 'y', 'on'].includes(s)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(s)) return false;
+  return null;
+}
+
+function normalizeMaxOnline(value) {
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+async function readPresenceSettings() {
+  await ensureSystemSettingsTable();
+  const keys = ['presence.max_online_users', 'presence.enable_queue', 'presence.block_queued_write_heavy'];
+  const result = await pool.query(
+    'SELECT key, value FROM system_settings WHERE key = ANY($1::text[])',
+    [keys]
+  );
+  const map = new Map();
+  for (const row of result.rows || []) {
+    map.set(String(row.key), row.value);
+  }
+
+  const defaults = {
+    max_online_users: 0,
+    enable_queue: false,
+    block_queued_write_heavy: true,
+  };
+
+  const dbMaxOnline = normalizeMaxOnline(map.get('presence.max_online_users'));
+  const dbEnableQueue = normalizeBool(map.get('presence.enable_queue'));
+  const dbBlockQueued = normalizeBool(map.get('presence.block_queued_write_heavy'));
+
+  return {
+    max_online_users: dbMaxOnline === null ? defaults.max_online_users : dbMaxOnline,
+    enable_queue: dbEnableQueue === null ? defaults.enable_queue : dbEnableQueue,
+    block_queued_write_heavy: dbBlockQueued === null ? defaults.block_queued_write_heavy : dbBlockQueued,
+  };
+}
+
+async function writePresenceSettings(next) {
+  await ensureSystemSettingsTable();
+
+  const updates = [];
+  if (Object.prototype.hasOwnProperty.call(next, 'max_online_users')) {
+    const normalized = normalizeMaxOnline(next.max_online_users);
+    if (normalized === null) {
+      const err = new Error('max_online_users must be a non-negative integer');
+      err.status = 400;
+      throw err;
+    }
+    updates.push(['presence.max_online_users', normalized]);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, 'enable_queue')) {
+    const normalized = normalizeBool(next.enable_queue);
+    if (normalized === null) {
+      const err = new Error('enable_queue must be boolean');
+      err.status = 400;
+      throw err;
+    }
+    updates.push(['presence.enable_queue', normalized]);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, 'block_queued_write_heavy')) {
+    const normalized = normalizeBool(next.block_queued_write_heavy);
+    if (normalized === null) {
+      const err = new Error('block_queued_write_heavy must be boolean');
+      err.status = 400;
+      throw err;
+    }
+    updates.push(['presence.block_queued_write_heavy', normalized]);
+  }
+
+  for (const [key, value] of updates) {
+    await pool.query(
+      `INSERT INTO system_settings (key, value, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (key)
+       DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, JSON.stringify(value)]
+    );
+  }
+
+  return readPresenceSettings();
+}
+
+async function tryWriteAuditLog({ action, details, ip, userAgent } = {}) {
+  try {
+    await pool.query(
+      'INSERT INTO audit_logs (action, entity_type, entity_id, ip_address, user_agent, details) VALUES ($1, $2, $3, $4, $5, $6)',
+      [
+        String(action || 'admin_settings_update'),
+        'system_settings',
+        null,
+        ip || null,
+        userAgent || null,
+        details ? JSON.stringify(details) : null,
+      ]
+    );
+  } catch {
+    // ignore
+  }
+}
+
 app.get('/health', async (_req, res) => {
   let dbOk = true;
   let dbError = null;
@@ -252,6 +378,36 @@ app.get('/admin/status', requireAdmin, async (_req, res) => {
       counts,
     },
   });
+});
+
+app.get('/admin/settings/presence', requireAdmin, async (_req, res) => {
+  try {
+    const settings = await readPresenceSettings();
+    return res.json({ success: true, data: settings });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e?.message || '讀取設定失敗' });
+  }
+});
+
+app.put('/admin/settings/presence', requireAdmin, async (req, res) => {
+  try {
+    const next = req.body || {};
+    const settings = await writePresenceSettings(next);
+
+    const ip = String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const ua = String(req.get('user-agent') || '').slice(0, 512);
+    await tryWriteAuditLog({
+      action: 'admin_presence_settings_update',
+      details: { next, admin: req.admin?.email || null },
+      ip,
+      userAgent: ua,
+    });
+
+    return res.json({ success: true, data: settings });
+  } catch (e) {
+    const status = Number(e?.status) || 500;
+    return res.status(status).json({ success: false, message: e?.message || '更新設定失敗' });
+  }
 });
 
 app.get('/admin/users', requireAdmin, async (req, res) => {
