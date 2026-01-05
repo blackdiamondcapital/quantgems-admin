@@ -49,6 +49,20 @@ export async function status() {
   return json && json.data
 }
 
+export async function getPresenceSettings() {
+  const json = await request('/admin/settings/presence')
+  return json && json.data
+}
+
+export async function updatePresenceSettings(next) {
+  const json = await request('/admin/settings/presence', {
+    method: 'PUT',
+    body: JSON.stringify(next || {}),
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return json && json.data
+}
+
 export async function users(params = {}) {
   const sp = new URLSearchParams()
   if (params.q) sp.set('q', params.q)
